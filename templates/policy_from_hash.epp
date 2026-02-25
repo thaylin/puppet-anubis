@@ -1,2 +1,2 @@
-<%- | Hash $policy_hash | -%>
-<%= $policy_hash.to_yaml %>
+<%- | Hash $policy | -%>
+<%= $policy.to_yaml %>
