@@ -1,0 +1,15 @@
+---
+anubis::instances:
+  default:
+    basedir: /etc/anubis
+    env:
+      ANUBIS_LISTEN: 0.0.0.0:8080
+      ANUBIS_LOG_LEVEL: info
+      ANUBIS_UPSTREAM: https://example.internal
+    policy_hash:
+      version: v1
+      rules:
+        - path: /healthz
+          action: allow
+        - path: /
+          action: authenticate
