@@ -1,72 +1,83 @@
-# Defined type: anubis::instance
-#
-# Configure a single Anubis instance and its rendered files.
-#
-# @param ensure
-#   Whether to create resources for this instance.
-# @param basedir
-#   Base directory for instance content.
-# @param env
-#   Environment variables to render into env file.
-# @param policy
-#   Raw policy text. Mutually exclusive with policy_hash.
-# @param policy_hash
-#   Structured policy to render as YAML.
 define anubis::instance (
-  Enum['present', 'absent'] $ensure = 'present',
-  Stdlib::Absolutepath $basedir = '/etc/anubis',
-  Hash[String, Variant[String, Numeric, Boolean]] $env = {},
-  Optional[String] $policy = undef,
-  Optional[Hash] $policy_hash = undef,
+  Stdlib::Absolutepath $config_dir,
+
+  String  $bind,
+  Integer $difficulty,
+  String  $metrics_bind,
+  Variant[Integer, Boolean] $serve_robots,
+
+  String  $target,
+  String  $cookie_domain,
+
+  Enum['raw','hash'] $policy_mode = 'raw',
+  Optional[String]  $policy_raw   = undef,
+  Optional[Hash]    $policy_hash  = undef,
+
+  Enum['running','stopped'] $service_ensure = 'running',
+  Boolean $service_enable = true,
 ) {
-  if $policy and $policy_hash {
-    fail('anubis::instance: policy and policy_hash are mutually exclusive')
+  $fqdn = $title
+
+  $env_file    = "${config_dir}/${fqdn}.env"
+  $policy_file = "${config_dir}/${fqdn}.botPolicies.yaml"
+
+  # Basic validation so you don’t silently deploy garbage:
+  if $policy_mode == 'raw' and $policy_raw == undef {
+    fail("anubis::instance[${fqdn}] policy_mode is 'raw' but policy_raw is undef")
+  }
+  if $policy_mode == 'hash' and $policy_hash == undef {
+    fail("anubis::instance[${fqdn}] policy_mode is 'hash' but policy_hash is undef")
   }
 
-  $instance_dir = "${basedir}/${title}"
-  $instance_env_file = "${instance_dir}/env"
-  $instance_policy_file = "${instance_dir}/policy.yaml"
-
-  file { $instance_dir:
-    ensure => $ensure,
-    owner  => 'root',
-    group  => 'root',
-    mode   => '0750',
+  file { $env_file:
+    ensure  => file,
+    owner   => 'root',
+    group   => 'root',
+    mode    => '0640',
+    content => epp('anubis/env.epp', {
+      'bind'          => $bind,
+      'difficulty'    => $difficulty,
+      'metrics_bind'  => $metrics_bind,
+      'serve_robots'  => $serve_robots,
+      'target'        => $target,
+      'cookie_domain' => $cookie_domain,
+      'policy_fname'  => $policy_file,
+    }),
+    require => File[$config_dir],
+    notify  => Service["anubis@${fqdn}"],
   }
 
-  if $ensure == 'present' {
-    file { $instance_env_file:
-      ensure  => 'file',
+  if $policy_mode == 'raw' {
+    file { $policy_file:
+      ensure  => file,
       owner   => 'root',
       group   => 'root',
-      mode    => '0640',
-      content => epp('anubis/env.epp', {'env' => $env}),
-    }
-
-    if $policy {
-      file { $instance_policy_file:
-        ensure  => 'file',
-        owner   => 'root',
-        group   => 'root',
-        mode    => '0640',
-        content => epp('anubis/policy_raw.epp', {'policy' => $policy}),
-      }
-    } elsif $policy_hash {
-      file { $instance_policy_file:
-        ensure  => 'file',
-        owner   => 'root',
-        group   => 'root',
-        mode    => '0640',
-        content => epp('anubis/policy_from_hash.epp', {'policy_hash' => $policy_hash}),
-      }
-    } else {
-      file { $instance_policy_file:
-        ensure => 'absent',
-      }
+      mode    => '0644',
+      content => epp('anubis/policy_raw.epp', { 'policy_raw' => $policy_raw }),
+      require => File[$config_dir],
+      notify  => Service["anubis@${fqdn}"],
     }
   } else {
-    file { [$instance_env_file, $instance_policy_file]:
-      ensure => 'absent',
+    file { $policy_file:
+      ensure  => file,
+      owner   => 'root',
+      group   => 'root',
+      mode    => '0644',
+      content => epp('anubis/policy_from_hash.epp', { 'policy' => $policy_hash }),
+      require => File[$config_dir],
+      notify  => Service["anubis@${fqdn}"],
     }
+  }
+
+  # Manage instance service
+  service { "anubis@${fqdn}":
+    ensure     => $service_ensure,
+    enable     => $service_enable,
+    hasstatus  => true,
+    hasrestart => true,
+    require    => [
+      File[$env_file],
+      File[$policy_file],
+    ],
   }
 }
