@@ -1,2 +1,2 @@
-<%- | String $policy | -%>
-<%= $policy %>
+<%- | String $policy_raw | -%>
+<%= $policy_raw %>
